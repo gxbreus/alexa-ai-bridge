@@ -1,89 +1,205 @@
 # Alexa AI Bridge
 
-Uma Alexa Custom Skill em pt-BR que usa AWS Lambda e a OpenAI Responses API para transformar uma Echo Dot em interface de voz para um assistente conversacional. O MVP não tem memória entre sessões ou integrações com contas; cada resposta usa busca web da OpenAI para reduzir respostas factuais sem fonte.
+Uma ponte entre uma Amazon Echo e a OpenAI: você abre uma Skill, faz uma pergunta e recebe uma resposta em voz alta, com contexto durante a sessão e busca web antes de cada resposta.
 
-## Arquitetura
+O projeto nasceu da vontade de aproveitar uma Echo Dot de 3ª geração como interface para um assistente pessoal. Usa os caminhos oficiais da Alexa, sem modificar o firmware do aparelho e sem depender de um computador ligado o tempo todo.
 
-`Echo Dot → Alexa → Custom Skill → AWS Lambda → OpenAI Responses API → Lambda → Alexa`
+É um projeto independente, sem vínculo com Amazon ou OpenAI. Compartilhar o código não publica a Skill na loja da Alexa: cada pessoa precisa configurar suas próprias contas, função Lambda e Skill.
 
-A cada sessão, o Lambda guarda `previous_response_id` em `sessionAttributes`. A pergunta seguinte envia esse ID para a Responses API, preservando o contexto apenas enquanto a sessão Alexa está aberta.
+## Funcionalidades e experiência de voz
 
-## Requisitos
+- Perguntas e respostas em português brasileiro.
+- OpenAI Responses API com busca web obrigatória.
+- Instruções para priorizar fontes confiáveis e reconhecer quando não consegue confirmar um dado.
+- Contexto enquanto a sessão Alexa estiver aberta.
+- Respostas curtas para voz, com remoção de URLs na saída falada.
+- Sessão mantida aberta com reprompt e saída por `parar` ou `cancelar`.
+- Tratamento de falhas da API e demora excessiva.
 
-- Python 3.11+
-- Conta AWS com acesso a Lambda e CloudWatch
-- Conta Alexa Developer
-- Conta OpenAI API com faturamento próprio (a assinatura ChatGPT não é crédito de API)
-- Git e, opcionalmente, GitHub CLI
+**Limitação importante:** esta versão exige frases-guia como `me diga`, `pergunte`, `quero saber`, `explique` ou `responda`. Você não precisa repetir o nome da Skill dentro da sessão, mas precisa usar uma dessas frases para que a Alexa reconheça a pergunta. Não é uma interface de transcrição livre.
 
-## Nome e conversa
+O slot `AMAZON.SearchQuery` exige uma frase-guia nos exemplos do intent, conforme a [documentação da Amazon](https://developer.amazon.com/en-US/docs/alexa/custom-skills/slot-type-reference.html). A captura de respostas por diálogo tem regras diferentes e não está implementada aqui.
 
-O nome de invocação é `meu assistente`. Use `Alexa, abrir meu assistente`, aguarde `Pode falar.` e faça perguntas consecutivas sem repetir o nome enquanto a sessão estiver ativa. Cada resposta usa `shouldEndSession=false` e uma reprompt curta; `parar` e `cancelar` encerram.
+## Arquitetura e funcionamento
 
-O nome é adequado para desenvolvimento, mas a validação final de disponibilidade e reconhecimento é feita pela Alexa Developer Console e pela Echo. A Amazon pode rejeitar nomes genéricos em certificação pública.
-
-## Configuração local
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -e '.[dev]'
-cp .env.example .env
-pytest
+```mermaid
+flowchart LR
+    Echo[Echo Dot] --> Alexa[Alexa / Custom Skill]
+    Alexa --> Lambda[AWS Lambda / Python]
+    Lambda --> API[OpenAI Responses API]
+    API --> Search[Busca web]
+    Search --> API
+    API --> Lambda
+    Lambda --> Alexa
+    Alexa --> Echo
 ```
 
-Preencha `.env` somente no seu computador. Nunca cole a chave no chat, em código ou no Git:
+1. `Alexa, abrir meu assistente` gera um `LaunchRequest`. A Lambda responde `Pode falar.`.
+2. Uma frase como `me diga o que é arquitetura serverless` aciona o intent `AskAIIntent`. A Alexa coloca a pergunta no slot `query`.
+3. O backend envia esse conteúdo pelo SDK oficial da OpenAI, com a ferramenta `web_search`, contexto de busca `low` e `tool_choice=required`. O modelo precisa usar a ferramenta antes de responder.
+4. As instruções orientam respostas curtas em português, fundamentadas nos resultados consultados. A avaliação da qualidade das fontes é feita pelo modelo; não há verificador independente das afirmações. Busca web reduz respostas sem fundamento, mas não garante ausência de erros.
+5. A Lambda prepara o texto para voz e devolve a resposta. `shouldEndSession=false` e a reprompt `Pode falar.` permitem continuar.
+6. O ID retornado fica em `sessionAttributes.previous_response_id`. A próxima pergunta envia esse ID à API para manter o contexto, e reaplica as instruções do assistente.
+
+Não há banco de dados ou memória persistente própria. As respostas são mantidas pela Responses API conforme as políticas do provedor. Encerrar a sessão remove o contexto disponível à Skill, mas não equivale a apagar dados dos provedores.
+
+### Organização do código
+
+| Arquivo | Responsabilidade |
+| --- | --- |
+| `src/lambda_function.py` | Entrada da Lambda, handlers e limite total de tempo. |
+| `src/alexa_handlers.py` | Abertura, perguntas, ajuda, saída e reconhecimento. |
+| `src/openai_service.py` | Client OpenAI, busca, contexto e falhas da API. |
+| `src/prompts.py` | Instruções de idioma, voz e uso de fontes. |
+| `src/config.py` | Variáveis de ambiente. |
+| `src/deadline.py` | Interrupção da invocação com sinais Linux. |
+| `alexa/interaction_model_pt_BR.json` | Modelo de interação para importar na console Alexa. |
+| `scripts/build_lambda.sh` | Empacotamento do código e dependências. |
+| `tests/` | Testes com mocks, sem chamadas faturáveis. |
+
+## Clonar e configurar
+
+São necessários Git, Python, conta AWS, conta Amazon Developer e conta OpenAI API com faturamento/saldo. A assinatura do ChatGPT não substitui o faturamento da API.
+
+Para reproduzir o pacote descrito aqui, use **Linux x86_64 com Python 3.13**, Bash e `zip`. O script inclui bibliotecas nativas do ambiente de build; um ZIP gerado no macOS ou Windows não é compatível automaticamente com a Lambda.
+
+```bash
+git clone https://github.com/gxbreus/alexa-ai-bridge.git
+cd alexa-ai-bridge
+python3.13 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m pip install 'pytest>=8,<9'
+cp .env.example .env
+pytest -q
+```
+
+Preencha seu `.env` local:
 
 ```dotenv
-OPENAI_API_KEY=
+OPENAI_API_KEY=sua_chave_da_api
 OPENAI_MODEL=gpt-5.6-luna
 ALEXA_SKILL_ID=
 ```
 
-Os testes não chamam a OpenAI real; usam doubles/mocks.
+| Variável | Uso |
+| --- | --- |
+| `OPENAI_API_KEY` | Obrigatória. Chave do seu projeto OpenAI, usada no backend. |
+| `OPENAI_MODEL` | Padrão: `gpt-5.6-luna`. O modelo precisa estar liberado na sua conta e aceitar busca web, `reasoning.effort=none` e baixa verbosidade. |
+| `OPENAI_TIMEOUT_SECONDS` | Opcional. Padrão: `7`. Timeout do SDK; a invocação também tem um deadline total. |
+| `ALEXA_SKILL_ID` | Opcional nesta versão. É lida pela configuração, mas não valida requisições no código. A autorização por Skill ID é configurada no gatilho Alexa Skills Kit da AWS. |
 
-## OpenAI
+O `.env` é ignorado pelo Git e não entra no ZIP. Na Lambda, configure as variáveis pela AWS: editar o `.env` local não altera a função publicada.
 
-Crie uma conta da API separada, se desejar: entre em [platform.openai.com](https://platform.openai.com/), configure billing, crie o Project `alexa-ai-bridge`, defina orçamento/limites e gere uma chave apenas para esse projeto. Desative recarga automática inicialmente, se essa opção estiver disponível. Guarde a chave em um cofre de senhas; não a envie a ninguém.
+### OpenAI
 
-`OPENAI_MODEL` permite trocar o modelo sem alterar código. O padrão `gpt-5.6-luna` usa `reasoning.effort: none` e baixa verbosidade para respostas vocais curtas. Consulte a [documentação do modelo](https://developers.openai.com/api/docs/models/gpt-5.6-luna) e os [preços atuais](https://platform.openai.com/pricing), pois valores e disponibilidade podem mudar.
+1. Acesse a [OpenAI Platform](https://platform.openai.com/), crie um projeto e configure o faturamento da API.
+2. Gere uma chave para esse projeto. Use suas próprias credenciais no `.env` e na Lambda.
+3. Libere o modelo escolhido em `OPENAI_MODEL`. Disponibilidade e limites podem variar por conta.
+4. Acompanhe [Usage](https://platform.openai.com/usage), filtrando pelo projeto, e consulte os [preços atuais](https://developers.openai.com/api/docs/pricing), inclusive os da busca web.
 
-## Lambda e deploy
+Referência da integração: [busca web na Responses API](https://developers.openai.com/api/docs/guides/tools-web-search).
 
-1. Execute `./scripts/build_lambda.sh`. O resultado será `dist/alexa-ai-bridge.zip`; ele não contém `.env` ou testes.
-2. No AWS Console, escolha uma região próxima e crie uma função Lambda Python 3.13 chamada `alexa-ai-bridge`.
-3. Envie o ZIP e configure o handler como `src.lambda_function.lambda_handler`.
-4. Configure timeout de 10 segundos e memória de 1024 MB para reduzir o tempo de inicialização e obter mais CPU. A chamada OpenAI (incluindo busca web obrigatória) tem timeout próprio de 7 segundos e sem retentativas automáticas. Um deadline Linux de 7,2 segundos cobre toda a invocação, inclusive criação do client e resolução DNS; ao excedê-lo, preserva a sessão e retorna um erro amigável. O limite também respeita o tempo restante informado pela Lambda. Isso limita o tempo de espera, mas não garante que a API externa responderá a tempo em toda pergunta.
-5. Em **Configuration → Environment variables**, adicione `OPENAI_API_KEY`, `OPENAI_MODEL=gpt-5.6-luna` e, depois de criada a Skill, `ALEXA_SKILL_ID`. Use a criptografia padrão da Lambda com KMS e restrinja quem pode ver/alterar configuração da função. Para uma equipe ou produção mais sensível, migre a chave para AWS Secrets Manager com uma policy IAM de leitura exclusiva.
-6. Em **Monitor**, consulte CloudWatch Logs. Os logs registram IDs/tipos, modelo, latência e categoria de erro, nunca o texto completo ou segredos.
+## Backend na AWS Lambda
 
-## Alexa Skill
+Com o ambiente virtual ativo e Python 3.13 disponível como `python3`:
 
-1. Abra [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask).
-2. Selecione **Create Skill**: nome exibido `Alexa AI Bridge`, idioma **Portuguese (BR)** e modelo **Custom**.
-3. Em **Build → Interaction Model → JSON Editor**, substitua pelo conteúdo de `alexa/interaction_model_pt_BR.json`; salve e use **Build Model**.
-4. Copie o Skill ID para `ALEXA_SKILL_ID` na Lambda (nunca para este README) e configure o endpoint como ARN da função Lambda na mesma região suportada.
-5. Em **Test**, habilite Development e teste primeiro pelo simulador; depois habilite a Skill na mesma conta Amazon da Echo Dot e faça o teste físico.
+```bash
+./scripts/build_lambda.sh
+```
 
-## Fluxo de validação
+O resultado é `dist/alexa-ai-bridge.zip`. O script substitui o ZIP anterior e reconstrói `build/lambda/`, incluindo dependências e `src/`, sem o `.env` ou os testes do projeto.
 
-1. Rode `pytest` localmente.
-2. Faça uma chamada OpenAI isolada só depois de configurar uma chave local.
-3. Teste a função no Lambda.
-4. Teste pelo simulador Alexa.
-5. Teste na Echo: pergunte sobre Albert Einstein, depois `Quando ele nasceu?` e `Em qual país?`. Confirme no CloudWatch que três chamadas ocorreram e que os dois follow-ups receberam contexto.
+No console AWS:
 
-## GitHub
+1. Selecione **us-east-1 / Norte da Virgínia** e crie uma função **do zero**, chamada `alexa-ai-bridge`.
+2. Use runtime **Python 3.13**, arquitetura **x86_64** e perfil de execução com permissão para CloudWatch Logs.
+3. Na aba **Código**, envie o ZIP pelo menu de atualização de código.
+4. Em **Configurações do runtime**, defina o manipulador como `src.lambda_function.lambda_handler`.
+5. Em **Configuração geral**, use memória de **1024 MB** e timeout de **10 segundos**.
+6. Em **Variáveis de ambiente**, configure sua `OPENAI_API_KEY` e `OPENAI_MODEL`. Se definir `OPENAI_TIMEOUT_SECONDS`, use `7` para reproduzir esta configuração.
 
-O repositório deve ser privado. Após autenticar o GitHub CLI, crie `gxbreus/alexa-ai-bridge` como privado, adicione `origin` e envie os commits. Confirme `git status` e revise que `.env` não aparece antes de cada commit.
+A função precisa alcançar a API OpenAI pela internet. Neste exemplo, não a conecte a uma VPC privada sem saída de rede configurada.
 
-## Troubleshooting
+O código aplica um deadline total de **7,2 segundos**, respeita o tempo restante da Lambda e desativa retentativas automáticas. Pesquisa e inicializações frias podem ultrapassar a janela de resposta da Alexa. Mais memória fornece mais CPU à Lambda, mas não acelera a pesquisa no provedor externo; confirme o tempo no simulador e no aparelho.
 
-- **Alexa encerra após resposta:** confirme que existe reprompt e que `shouldEndSession` é `false`.
-- **Resposta amigável de erro:** verifique CloudWatch para a categoria sem expor logs ao usuário.
-- **Falha de autenticação/saldo:** valide a chave, billing, projeto e budget no OpenAI Platform.
-- **Nome não reconhecido:** teste no simulador e revise o histórico da Alexa App; talvez seja necessário um nome mais distintivo.
+## Configurar sua Alexa Skill
 
-## Segurança e roadmap
+1. Abra a [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) com a mesma conta Amazon vinculada à Echo.
+2. Clique em **Create Skill**. Nome: `Meu Assistente`; idioma: **Portuguese (BR)**.
+3. Escolha **Other**, modelo **Custom**, hospedagem **Provision your own** e template **Start from Scratch**.
+4. Em **Build → Interaction Model → JSON Editor**, importe ou cole `alexa/interaction_model_pt_BR.json`. Salve e execute o build.
+5. Em **Endpoint**, copie **Your Skill ID**. Na Lambda, clique em **Adicionar gatilho**, selecione **Alexa Skills Kit** e restrinja o gatilho ao ID da sua Skill. Mantenha a verificação de Skill ID habilitada no gatilho.
+6. Volte ao endpoint da Skill, selecione **AWS Lambda ARN** e substitua a ARN do template em **Default Region (Required)** pela ARN da sua função. Os campos opcionais podem ficar vazios neste exemplo. Salve.
+7. Na aba **Test**, habilite **Development**, selecione português brasileiro e teste pelo **Alexa Simulator**.
+8. Teste na Echo vinculada à mesma conta. Para uso em desenvolvimento na sua conta, não é necessário publicar a Skill na loja.
 
-Não versione chaves, ZIPs, `.env` ou logs contendo dados sensíveis. A busca web é obrigatória e pode elevar o consumo de API; acompanhe o Usage Dashboard por projeto. Ela reduz alucinações, mas não transforma fontes da internet em verdade absoluta. Calendar, Gmail, memória persistente e Home Assistant ficam para milestones posteriores e exigirão desenho de permissões/confirmação.
+O nome de invocação é `meu assistente` e pode ser alterado no JSON ou na console. O reconhecimento no aparelho e eventual certificação precisam ser testados. Clonar o repositório não dá acesso à implantação do autor: crie seus próprios recursos e credenciais.
+
+## Exemplos de conversa
+
+Estas falas são sugestões de teste, não transcrições de respostas garantidas. Aguarde cada resposta e continue enquanto a sessão estiver ativa.
+
+### Arquitetura e contexto
+
+```text
+Alexa, abrir meu assistente
+Me diga o que é arquitetura serverless em duas frases
+Explique a principal vantagem dela
+Me diga uma limitação desse modelo
+Parar
+```
+
+Os pedidos seguintes devem continuar o assunto de arquitetura serverless. A sequência demonstra contexto sem depender de uma notícia que pode mudar.
+
+### Design e acessibilidade
+
+```text
+Alexa, abrir meu assistente
+Me diga a diferença entre UX e UI de forma simples
+Explique como elas se complementam
+Me diga um exemplo de acessibilidade em um formulário
+Cancelar
+```
+
+### Pesquisa factual
+
+```text
+Alexa, abrir meu assistente
+Pergunte quem foi o vice-artilheiro do Campeonato Brasileiro de 2003
+Me diga por qual clube ele jogava
+Responda quantos gols ele marcou naquela edição
+Parar
+```
+
+Use a sequência para avaliar pesquisa e contexto com um dado histórico. Confira as respostas em fonte independente antes de usá-las como referência ou publicar uma demonstração.
+
+## Testes e diagnóstico
+
+```bash
+source .venv/bin/activate
+pytest -q
+```
+
+Os testes cobrem sessão, contexto entre turnos, pergunta vazia, falhas da API, saída de links para voz e deadline. Não comprovam a qualidade factual do modelo nem substituem testes de rede, reconhecimento de fala e tempo de resposta na Echo.
+
+Abra **Monitor → CloudWatch Logs** na AWS. Os logs de aplicação registram modelo, latência, IDs/tipos de requisição e categoria de falha, sem registrar intencionalmente a chave ou o texto completo das perguntas.
+
+| Sintoma | O que conferir |
+| --- | --- |
+| Endpoint não salva / gatilho inválido | Gatilho Alexa Skills Kit, Skill ID autorizado e ARN correta em Default Region. |
+| Pergunta não chega à função | Frase-guia, idioma pt-BR, slot `query` e build do modelo. |
+| Mensagem genérica de falha | Categoria no CloudWatch; chave, saldo, acesso ao modelo e rede. |
+| Timeout | Configuração, inicialização fria e latência da API/busca. Aumentar só o timeout da Lambda não amplia a janela da Alexa. |
+| Contexto desaparece | Sessão encerrada por saída ou inatividade; não há memória entre sessões. |
+| Echo não encontra a Skill | Testing em Development, conta Amazon e nome de invocação. |
+
+## Custos, privacidade e próximos passos
+
+Executar o projeto usa serviços de terceiros: OpenAI (modelo e busca web) e AWS (Lambda e logs). Créditos e franquias variam por conta. Consulte [Usage da OpenAI](https://platform.openai.com/usage) e [Billing da AWS](https://console.aws.amazon.com/costmanagement/).
+
+As falas são processadas pela Alexa e o conteúdo reconhecido no slot é enviado à OpenAI. A busca obrigatória também pode usar informações da pergunta em consultas de pesquisa. Evite informações pessoais sensíveis na demonstração.
+
+Não publique `.env`, chaves, credenciais AWS ou capturas que revelem segredos. Use suas próprias contas e nunca coloque a chave OpenAI no modelo de interação ou no código versionado.
+
+Possíveis evoluções: captura em diálogo, tratamento mais completo de citações, avaliações de qualidade factual e otimização de latência. Memória persistente, calendário e automações pessoais exigem novos fluxos de autorização e não fazem parte da versão atual.

@@ -6,7 +6,13 @@
         {
           "name": "AskAIIntent",
           "slots": [{"name": "query", "type": "AMAZON.SearchQuery"}],
-          "samples": ["{query}"]
+          "samples": [
+            "pergunte {query}",
+            "quero saber {query}",
+            "me diga {query}",
+            "explique {query}",
+            "responda {query}"
+          ]
         },
         {"name": "AMAZON.HelpIntent", "samples": []},
         {"name": "AMAZON.StopIntent", "samples": []},
