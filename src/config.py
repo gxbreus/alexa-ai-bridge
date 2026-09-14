@@ -23,7 +23,7 @@ class Settings:
     def from_environment(cls) -> "Settings":
         key = os.getenv("OPENAI_API_KEY", "").strip()
         model = os.getenv("OPENAI_MODEL", "gpt-5.6-luna").strip()
-        timeout_value = os.getenv("OPENAI_TIMEOUT_SECONDS", "7").strip()
+        timeout_value = os.getenv("OPENAI_TIMEOUT_SECONDS", "5.5").strip()
         if not key:
             raise ConfigurationError("OPENAI_API_KEY is not configured")
         if not model:
