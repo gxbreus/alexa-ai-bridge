@@ -32,7 +32,11 @@ class AIAnswer:
 class OpenAIService:
     def __init__(self, settings: Settings, client: Any | None = None) -> None:
         self._settings = settings
-        self._client = client or OpenAI(api_key=settings.openai_api_key, timeout=settings.openai_timeout_seconds)
+        self._client = client or OpenAI(
+            api_key=settings.openai_api_key,
+            timeout=settings.openai_timeout_seconds,
+            max_retries=0,
+        )
 
     def ask(self, question: str, previous_response_id: str | None = None) -> AIAnswer:
         if not question or not question.strip():

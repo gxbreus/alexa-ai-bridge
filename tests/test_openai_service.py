@@ -65,3 +65,12 @@ def test_missing_api_key_is_rejected(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(ConfigurationError, match="OPENAI_API_KEY"):
         Settings.from_environment()
+
+
+def test_client_disables_retries_for_alexa_latency(monkeypatch):
+    import src.openai_service as module
+    captured = {}
+    monkeypatch.setattr(module, "OpenAI", lambda **kwargs: captured.update(kwargs) or object())
+    OpenAIService(Settings("not-a-real-key", "gpt-5.6-luna", None, 5.5))
+    assert captured["timeout"] == 5.5
+    assert captured["max_retries"] == 0
