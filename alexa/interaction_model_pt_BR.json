@@ -1,0 +1,18 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "meu assistente",
+      "intents": [
+        {
+          "name": "AskAIIntent",
+          "slots": [{"name": "query", "type": "AMAZON.SearchQuery"}],
+          "samples": ["{query}"]
+        },
+        {"name": "AMAZON.HelpIntent", "samples": []},
+        {"name": "AMAZON.StopIntent", "samples": []},
+        {"name": "AMAZON.CancelIntent", "samples": []}
+      ],
+      "types": []
+    }
+  }
+}
