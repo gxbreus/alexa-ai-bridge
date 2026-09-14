@@ -53,7 +53,7 @@ Crie uma conta da API separada, se desejar: entre em [platform.openai.com](https
 1. Execute `./scripts/build_lambda.sh`. O resultado será `dist/alexa-ai-bridge.zip`; ele não contém `.env` ou testes.
 2. No AWS Console, escolha uma região próxima e crie uma função Lambda Python 3.13 chamada `alexa-ai-bridge`.
 3. Envie o ZIP e configure o handler como `src.lambda_function.lambda_handler`.
-4. Configure timeout de 7 segundos e memória de 256 MB. A chamada OpenAI tem timeout próprio de 5,5 segundos e sem retentativas automáticas, para sobrar tempo à Alexa responder um erro amigável.
+4. Configure timeout de 7 segundos e memória de 1024 MB para reduzir o tempo de inicialização e obter mais CPU. A chamada OpenAI tem timeout próprio de 5,5 segundos e sem retentativas automáticas. Um deadline Linux de 5,8 segundos cobre toda a invocação, inclusive criação do client e resolução DNS; ao excedê-lo, preserva a sessão e retorna um erro amigável. O limite também respeita o tempo restante informado pela Lambda. Isso limita o tempo de espera, mas não garante que a API externa responderá a tempo em toda pergunta.
 5. Em **Configuration → Environment variables**, adicione `OPENAI_API_KEY`, `OPENAI_MODEL=gpt-5.6-luna` e, depois de criada a Skill, `ALEXA_SKILL_ID`. Use a criptografia padrão da Lambda com KMS e restrinja quem pode ver/alterar configuração da função. Para uma equipe ou produção mais sensível, migre a chave para AWS Secrets Manager com uma policy IAM de leitura exclusiva.
 6. Em **Monitor**, consulte CloudWatch Logs. Os logs registram IDs/tipos, modelo, latência e categoria de erro, nunca o texto completo ou segredos.
 

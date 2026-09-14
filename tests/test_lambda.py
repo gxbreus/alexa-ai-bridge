@@ -83,3 +83,29 @@ def test_stop_and_cancel_end_the_session():
 def test_session_ended_returns_no_speech():
     result = lambda_handler(request("SessionEndedRequest"), None)
     assert result["response"] == {}
+
+
+def test_entire_invocation_deadline_covers_stalled_sdk(monkeypatch):
+    import time
+    from src import lambda_function
+
+    def stalled_handler(event, context):
+        time.sleep(0.5)
+        raise AssertionError("Stalled handler should have been interrupted")
+
+    monkeypatch.setattr(lambda_function, "_sdk_handler", stalled_handler)
+    context = SimpleNamespace(get_remaining_time_in_millis=lambda: 850)
+    event = request("IntentRequest", intent_name="AskAIIntent", query="teste",
+                    attributes={"previous_response_id": "ABC"})
+    started = time.perf_counter()
+    result = lambda_function.lambda_handler(event, context)
+    assert time.perf_counter() - started < 0.4
+    assert "Tive um problema" in speech(result)
+    assert result["response"]["shouldEndSession"] is False
+    assert result["sessionAttributes"]["previous_response_id"] == "ABC"
+
+
+def test_deadline_timer_is_removed_after_invocation():
+    import signal
+    lambda_handler(request("LaunchRequest"), None)
+    assert signal.getitimer(signal.ITIMER_REAL)[0] == 0

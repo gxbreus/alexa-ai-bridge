@@ -11,6 +11,7 @@ from openai import APIStatusError, APITimeoutError, AuthenticationError, OpenAI,
 
 from .config import ConfigurationError, Settings
 from .prompts import ASSISTANT_INSTRUCTIONS
+from .deadline import RequestDeadlineExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +54,10 @@ class OpenAIService:
             payload["previous_response_id"] = previous_response_id
 
         started = time.perf_counter()
+        logger.info(json.dumps({"event": "openai_call_start", "model": self._settings.openai_model}))
         try:
             response = self._client.responses.create(**payload)
-        except APITimeoutError as error:
+        except (APITimeoutError, RequestDeadlineExceeded) as error:
             self._log_failure("timeout", started)
             raise OpenAIServiceError("timeout") from error
         except RateLimitError as error:
@@ -88,7 +90,12 @@ class OpenAIService:
 
 @lru_cache(maxsize=1)
 def get_openai_service() -> OpenAIService:
+    started = time.perf_counter()
+    logger.info(json.dumps({"event": "openai_client_init_start"}))
     try:
-        return OpenAIService(Settings.from_environment())
+        service = OpenAIService(Settings.from_environment())
+        logger.info(json.dumps({"event": "openai_client_init_ready",
+                                "latency_ms": round((time.perf_counter() - started) * 1000)}))
+        return service
     except ConfigurationError as error:
         raise OpenAIServiceError("configuration") from error
