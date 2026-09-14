@@ -1,6 +1,6 @@
 # Alexa AI Bridge
 
-Uma Alexa Custom Skill em pt-BR que usa AWS Lambda e a OpenAI Responses API para transformar uma Echo Dot em interface de voz para um assistente conversacional. O MVP não tem memória entre sessões, pesquisa na web ou integrações com contas.
+Uma Alexa Custom Skill em pt-BR que usa AWS Lambda e a OpenAI Responses API para transformar uma Echo Dot em interface de voz para um assistente conversacional. O MVP não tem memória entre sessões ou integrações com contas; cada resposta usa busca web da OpenAI para reduzir respostas factuais sem fonte.
 
 ## Arquitetura
 
@@ -53,7 +53,7 @@ Crie uma conta da API separada, se desejar: entre em [platform.openai.com](https
 1. Execute `./scripts/build_lambda.sh`. O resultado será `dist/alexa-ai-bridge.zip`; ele não contém `.env` ou testes.
 2. No AWS Console, escolha uma região próxima e crie uma função Lambda Python 3.13 chamada `alexa-ai-bridge`.
 3. Envie o ZIP e configure o handler como `src.lambda_function.lambda_handler`.
-4. Configure timeout de 7 segundos e memória de 1024 MB para reduzir o tempo de inicialização e obter mais CPU. A chamada OpenAI tem timeout próprio de 5,5 segundos e sem retentativas automáticas. Um deadline Linux de 5,8 segundos cobre toda a invocação, inclusive criação do client e resolução DNS; ao excedê-lo, preserva a sessão e retorna um erro amigável. O limite também respeita o tempo restante informado pela Lambda. Isso limita o tempo de espera, mas não garante que a API externa responderá a tempo em toda pergunta.
+4. Configure timeout de 10 segundos e memória de 1024 MB para reduzir o tempo de inicialização e obter mais CPU. A chamada OpenAI (incluindo busca web obrigatória) tem timeout próprio de 7 segundos e sem retentativas automáticas. Um deadline Linux de 7,2 segundos cobre toda a invocação, inclusive criação do client e resolução DNS; ao excedê-lo, preserva a sessão e retorna um erro amigável. O limite também respeita o tempo restante informado pela Lambda. Isso limita o tempo de espera, mas não garante que a API externa responderá a tempo em toda pergunta.
 5. Em **Configuration → Environment variables**, adicione `OPENAI_API_KEY`, `OPENAI_MODEL=gpt-5.6-luna` e, depois de criada a Skill, `ALEXA_SKILL_ID`. Use a criptografia padrão da Lambda com KMS e restrinja quem pode ver/alterar configuração da função. Para uma equipe ou produção mais sensível, migre a chave para AWS Secrets Manager com uma policy IAM de leitura exclusiva.
 6. Em **Monitor**, consulte CloudWatch Logs. Os logs registram IDs/tipos, modelo, latência e categoria de erro, nunca o texto completo ou segredos.
 
@@ -86,4 +86,4 @@ O repositório deve ser privado. Após autenticar o GitHub CLI, crie `gxbreus/al
 
 ## Segurança e roadmap
 
-Não versione chaves, ZIPs, `.env` ou logs contendo dados sensíveis. MVP 2 poderá adicionar pesquisa web somente quando uma pergunta requerer dados atuais; Calendar, Gmail, memória persistente e Home Assistant ficam para milestones posteriores e exigirão desenho de permissões/confirmação.
+Não versione chaves, ZIPs, `.env` ou logs contendo dados sensíveis. A busca web é obrigatória e pode elevar o consumo de API; acompanhe o Usage Dashboard por projeto. Ela reduz alucinações, mas não transforma fontes da internet em verdade absoluta. Calendar, Gmail, memória persistente e Home Assistant ficam para milestones posteriores e exigirão desenho de permissões/confirmação.

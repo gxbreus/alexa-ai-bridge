@@ -33,6 +33,18 @@ def test_first_question_uses_responses_api_without_previous_id():
     assert result.text == "Johnny Depp é ator."
     assert "previous_response_id" not in responses.payloads[0]
     assert responses.payloads[0]["reasoning"] == {"effort": "none"}
+    assert responses.payloads[0]["tools"] == [{"type": "web_search", "search_context_size": "low"}]
+    assert responses.payloads[0]["tool_choice"] == "required"
+    assert responses.payloads[0]["include"] == ["web_search_call.action.sources"]
+
+
+def test_web_citation_link_is_converted_to_speech_safe_source_name():
+    responses = FakeResponses(
+        SimpleNamespace(id="ABC", output_text="O dado é 30. ([RSSSF](https://www.rsssf.org/example))")
+    )
+    result = service(responses).ask("teste")
+    assert result.text == "O dado é 30. Fonte: RSSSF."
+    assert "https://" not in result.text
 
 
 def test_second_and_third_questions_keep_response_chain():

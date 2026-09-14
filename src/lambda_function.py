@@ -38,7 +38,9 @@ def lambda_handler(event, context):
     request = event.get("request", {})
     logger.info(json.dumps({"event": "invocation_start", "request_id": request.get("requestId"),
                             "request_type": request.get("type")}))
-    budget = 5.8
+    # Alexa precisa de uma resposta rápida, mas a busca web varia mais que uma
+    # resposta sem ferramentas. Encerramos antes do limite externo da Alexa.
+    budget = 7.2
     if context is not None:
         budget = max(0.01, min(budget, context.get_remaining_time_in_millis() / 1000 - 0.8))
     try:
